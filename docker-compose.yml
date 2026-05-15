@@ -1,0 +1,83 @@
+version: "3.8"
+
+services:
+  airflow-postgres:
+    image: postgres:15
+    container_name: airflow_postgres
+    environment:
+      POSTGRES_USER: ${AIRFLOW_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${AIRFLOW_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${AIRFLOW_POSTGRES_DB}
+    ports:
+      - "${AIRFLOW_POSTGRES_PORT}:5432"
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+
+  dwh-postgres:
+    image: postgres:15
+    container_name: dwh_postgres
+    environment:
+      POSTGRES_USER: ${DWH_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${DWH_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${DWH_POSTGRES_DB}
+    ports:
+      - "${DWH_POSTGRES_PORT}:5432"
+    volumes:
+      - dwh_postgres_data:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d
+
+  airflow-webserver:
+    image: ${AIRFLOW_IMAGE}
+    env_file:
+      - .env
+    container_name: airflow_webserver
+    depends_on:
+      - airflow-postgres
+      - dwh-postgres
+    environment:
+      AIRFLOW__CORE__EXECUTOR: ${AIRFLOW_EXECUTOR}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER}:${AIRFLOW_POSTGRES_PASSWORD}@airflow-postgres:5432/${AIRFLOW_POSTGRES_DB}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "${AIRFLOW_LOAD_EXAMPLES}"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+    ports:
+      - "${AIRFLOW_WEBSERVER_PORT}:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./data:/opt/airflow/data
+      - ./.env:/opt/airflow/.env
+    command: >
+      bash -c "
+      airflow db migrate &&
+      airflow users create
+      --username ${AIRFLOW_ADMIN_USERNAME}
+      --password ${AIRFLOW_ADMIN_PASSWORD}
+      --firstname ${AIRFLOW_ADMIN_FIRSTNAME}
+      --lastname ${AIRFLOW_ADMIN_LASTNAME}
+      --role ${AIRFLOW_ADMIN_ROLE}
+      --email ${AIRFLOW_ADMIN_EMAIL} || true &&
+      airflow webserver
+      "
+
+  airflow-scheduler:
+    image: ${AIRFLOW_IMAGE}
+    env_file:
+      - .env
+    container_name: airflow_scheduler
+    depends_on:
+      - airflow-webserver
+    environment:
+      AIRFLOW__CORE__EXECUTOR: ${AIRFLOW_EXECUTOR}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_POSTGRES_USER}:${AIRFLOW_POSTGRES_PASSWORD}@airflow-postgres:5432/${AIRFLOW_POSTGRES_DB}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "${AIRFLOW_LOAD_EXAMPLES}"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./data:/opt/airflow/data
+      - ./.env:/opt/airflow/.env
+    command: airflow scheduler
+
+volumes:
+  airflow_postgres_data:
+  dwh_postgres_data:
